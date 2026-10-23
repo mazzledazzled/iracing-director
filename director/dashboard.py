@@ -133,8 +133,19 @@ def _running(exe: str) -> bool:
     return exe.lower() in out.lower()
 
 
+STARTED = time.time()
+
+
+def code_updated() -> bool:
+    """True if the app's code changed after this dashboard started (it must be restarted to use it)."""
+    try:
+        return any(f.stat().st_mtime > STARTED + 1 for f in (ROOT / "director").glob("*.py"))
+    except OSError:
+        return False
+
+
 def status(cfg) -> dict:
-    st = {}
+    st = {"updated": code_updated()}
     st["iracing"] = _running("iRacingSim64DX11.exe")
     try:  # iRacing's own status page says whether a session/replay is loaded
         with urllib.request.urlopen("http://127.0.0.1:32034/get_sim_status?object=simStatus", timeout=1) as r:
@@ -366,6 +377,7 @@ def serve(port: int = 8760, open_browser: bool = True):
             if u.path == "/":
                 b = PAGE.encode("utf-8")
                 self.send_response(200)
+                self.send_header("Cache-Control", "no-store")  # always the current version of the page
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(b)))
                 self.end_headers()
@@ -491,7 +503,8 @@ def serve(port: int = 8760, open_browser: bool = True):
     except OSError:
         srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
     url = f"http://127.0.0.1:{srv.server_address[1]}/"
-    print(f"\n  iRacing Director dashboard: {url}\n  Keep this window open while you use it. Close it to stop the dashboard.\n")
+    print(f"\n  iRacing Director dashboard: {url}\n  Keep this window open while you use it. Close it to stop the dashboard.")
+    print("  After the app is updated, close this window and start dashboard.bat again.\n")
     if open_browser:
         webbrowser.open(url)
     try:
@@ -548,6 +561,7 @@ video{width:100%;max-height:70vh;background:#000;border-radius:8px}
 <div class="lights" id="lights"></div>
 <nav><button data-tab="run" class="on">Run</button><button data-tab="videos">Videos</button><button data-tab="script">Script</button><button data-tab="settings">Settings</button></nav></header>
 <main>
+<div class="banner err hide" id="updated"><b>The app was updated.</b> Close the black dashboard window and double-click <b>dashboard.bat</b> again to use the new version.</div>
 <section id="tab-run">
   <div class="row"><label>Race</label><select id="proj" style="min-width:320px"></select><span class="dim" id="projinfo"></span></div>
   <p class="dim" style="margin:0 0 14px">After each scan, a <b>race setup</b> page opens with that race's drivers: pick the featured driver (or type a name or car number) and the video length there.</p>
@@ -616,7 +630,7 @@ function runShort(){const a=["short"];
   if($("short_reuse").checked){a.push("--reuse","--name",cur())}else{if(!ST.replay&&!confirm("The replay doesn't look open in iRacing. Start anyway?"))return}
   if(!ST.obs_ws&&!confirm("OBS isn't reachable (open it, WebSocket on). Start anyway?"))return;run(a)}
 function light(name,state,text){return `<span class="light"><span class="dot ${state}"></span>${esc(name)}${text?`: ${esc(text)}`:""}</span>`}
-async function pollStatus(){try{ST=await (await fetch("/api/status")).json();
+async function pollStatus(){try{ST=await (await fetch("/api/status")).json();$("updated").classList.toggle("hide",!ST.updated);
   $("lights").innerHTML=light("iRacing",ST.replay?"ok":ST.iracing?"warn":"bad",ST.replay?"replay open":ST.iracing?"no replay":"closed")+
    light("OBS",ST.obs_ws?"ok":ST.obs?"warn":"bad",ST.obs_ws?"ready":ST.obs?"WebSocket off?":"closed")+
    light("Ollama",ST.ollama&&ST.model_ok?"ok":ST.ollama?"warn":"bad",ST.ollama?(ST.model_ok?"ready":"model missing"):"not running")+
