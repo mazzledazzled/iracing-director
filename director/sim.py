@@ -163,6 +163,14 @@ class Sim:
             time.sleep(0.05)
         return False
 
+    def live_cameras(self) -> dict:
+        """Camera groups loaded in iRacing right now (includes custom groups you made/loaded
+        in the camera tool): lower-case name -> group number."""
+        out = {}
+        for g in (self.ir["CameraInfo"] or {}).get("Groups", []):
+            out[str(g["GroupName"]).strip().lower()] = int(g["GroupNum"])
+        return out
+
     def camera(self, car_number: str, group_num: int):
         self.ir.cam_switch_num(str(car_number), int(group_num), 0)
 

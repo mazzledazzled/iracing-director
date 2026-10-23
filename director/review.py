@@ -44,15 +44,29 @@ def page_data(proj, race, det, plan, manifest_name: str = "clips.json") -> dict:
         clips.append(dict(
             id=c["id"], keep=True, start=fmt(c["start"]), end=fmt(c["end"]), label=c.get("label", ""),
             type=c.get("type", ""), lap=R.lap_of(lead[0], c["start"]) if lead else 0,
-            shots=[dict(at=round(s["at"] - c["start"], 1), car=s["car"], cam=s["cam"]) for s in c.get("shots", [])],
+            shots=[dict(at=round(s["at"] - c["start"], 1), car=s["car"], cam=s.get("cam_name") or str(s["cam"]))
+                   for s in c.get("shots", [])],
             caption=cap, note=c.get("note", ""), video=video))
     return dict(
         track=race["track"],
         drivers=[dict(idx=d["idx"], name=d["short"], number=d["number"], car=d.get("car", "")) for d in race["drivers"]],
-        cameras=race.get("cameras", []),
+        cameras=camera_choices(race, proj),
         clips=clips,
         laps=[dict(lap=n, t=fmt(t)) for n, t in lap_starts(R)],
     )
+
+
+def camera_choices(race: dict, proj=None) -> list[dict]:
+    """iRacing's cameras for this track plus your custom ones (config: capture.custom_cameras)."""
+    from .config import load_config
+
+    cams = [dict(num=c["num"], name=c["name"]) for c in race.get("cameras", [])]
+    have = {c["name"].lower() for c in cams}
+    for name in (load_config().capture.get("custom_cameras") or []):
+        if str(name).lower() not in have:
+            cams.append(dict(num=-1, name=str(name), custom=True))
+            have.add(str(name).lower())
+    return cams
 
 
 def lap_starts(R) -> list[tuple[int, float]]:
@@ -87,7 +101,7 @@ def apply_edits(proj, race, det, plan, edits: list[dict], plan_name: str = "plan
 
     R = Race(race)
     drv = {d["idx"]: d for d in race["drivers"]}
-    cams = {c["num"]: c["name"] for c in race.get("cameras", [])}
+    by_name = {c["name"].lower(): c for c in camera_choices(race)}
     old = {c["id"]: c for c in plan["clips"]}
     events = det["events"]
     next_ev = max([e["id"] for e in events] + [0]) + 1
@@ -102,9 +116,10 @@ def apply_edits(proj, race, det, plan, edits: list[dict], plan_name: str = "plan
         shots = []
         for s in sorted(e.get("shots") or [], key=lambda s: float(s["at"])):
             car = int(s["car"])
-            cam = int(s["cam"])
+            cname = str(s["cam"])
+            cam = by_name.get(cname.lower(), dict(num=-1, name=cname))
             shots.append(dict(at=round(start + max(0.0, float(s["at"])), 2), car=car,
-                              number=drv.get(car, {}).get("number", "1"), cam=cam, cam_name=cams.get(cam, str(cam)),
+                              number=drv.get(car, {}).get("number", "1"), cam=cam["num"], cam_name=cam["name"],
                               role="manual", ev=o.get("primary") if o else None))
         if not shots:
             continue  # a clip needs at least one car to follow
@@ -280,7 +295,7 @@ let D=null;
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const secs=s=>{s=String(s).trim();if(s.includes(":")){const[m,x]=s.split(":");return(+m)*60+(+x)}return +s};
 function carOpts(sel){return D.drivers.map(d=>`<option value="${d.idx}" ${d.idx==sel?"selected":""}>${esc(d.name)} (#${esc(d.number)})</option>`).join("")}
-function camOpts(sel){return D.cameras.map(c=>`<option value="${c.num}" ${c.num==sel?"selected":""}>${esc(c.name)}</option>`).join("")}
+function camOpts(sel){return D.cameras.map(c=>`<option value="${esc(c.name)}" ${c.name==sel?"selected":""}>${esc(c.name)}${c.custom?" (custom)":""}</option>`).join("")}
 function render(){
   document.getElementById("track").textContent=D.track;
   document.getElementById("laps").textContent="Lap starts: "+D.laps.map(l=>`L${l.lap} ${l.t}`).join(" · ");
@@ -295,7 +310,7 @@ function render(){
       <div class="grid"><div class="box"><h3>Camera shots</h3>${c.shots.map((s,j)=>`<div class="shot">
         <label>at <input value="${s.at}" onchange="D.clips[${i}].shots[${j}].at=+this.value">s</label>
         <select onchange="D.clips[${i}].shots[${j}].car=+this.value">${carOpts(s.car)}</select>
-        <select onchange="D.clips[${i}].shots[${j}].cam=+this.value">${camOpts(s.cam)}</select>
+        <select onchange="D.clips[${i}].shots[${j}].cam=this.value">${camOpts(s.cam)}</select>
         <button class="small" onclick="D.clips[${i}].shots.splice(${j},1);render()">✕</button></div>`).join("")}
         <button class="small" onclick="addShot(${i})">+ shot</button>
         ${c.video?`<video src="${c.video}" controls preload="metadata"></video>`:""}</div>
@@ -309,9 +324,9 @@ function render(){
   sum()}
 function sum(){const k=D.clips.filter(c=>c.keep);const t=k.reduce((a,c)=>a+Math.max(0,secs(c.end)-secs(c.start)),0);
   document.getElementById("sum").textContent=`${k.length} clips · ${(t/60).toFixed(1)} min`}
-function addShot(i){const c=D.clips[i];const last=c.shots[c.shots.length-1]||{car:D.drivers[0].idx,cam:(D.cameras[0]||{}).num||1,at:0};
+function addShot(i){const c=D.clips[i];const last=c.shots[c.shots.length-1]||{car:D.drivers[0].idx,cam:(D.cameras[0]||{}).name||"TV1",at:0};
   c.shots.push({at:Math.round((+last.at+6)*10)/10,car:last.car,cam:last.cam});render()}
-function addClip(){const cam=(D.cameras.find(c=>/tv1/i.test(c.name))||D.cameras[0]||{num:1}).num;
+function addClip(){const cam=(D.cameras.find(c=>/tv1/i.test(c.name))||D.cameras[0]||{name:"TV1"}).name;
   D.clips.push({id:null,keep:true,start:"0:00.0",end:"0:12.0",label:"",type:"custom",lap:"",shots:[{at:0,car:D.drivers[0].idx,cam}],
   caption:{tag:"HIGHLIGHT",main:"",sub:""},note:"",video:null});render();window.scrollTo(0,document.body.scrollHeight)}
 async function save(){const r=await fetch("/save",{method:"POST",body:JSON.stringify({clips:D.clips})});const j=await r.json();

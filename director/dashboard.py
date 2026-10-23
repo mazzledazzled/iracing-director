@@ -60,7 +60,8 @@ FIELDS = [
     ("Recording", [
         ("capture", "auto_close_apps", "bool", "Close iRacing + OBS after recording", "Frees the GPU for commentary and voice", None),
         ("capture", "settle_seconds", "num", "Camera settle time (s)", "Raise if clips start on the wrong car", None),
-        ("capture", "obs_password", "str", "OBS WebSocket password", "OBS > Tools > WebSocket Server Settings", None),
+        ("capture", "obs_password", "secret", "OBS WebSocket password", "OBS > Tools > WebSocket Server Settings. Never shown here once saved.", None),
+        ("capture", "custom_cameras", "cams", "Your custom cameras", "Camera groups you made/saved in iRacing's camera tool (exact names). Load that camera set in iRacing before recording.", None),
         ("capture", "start_cameras", "cams", "Start cameras", "", None),
         ("capture", "chase_cameras", "cams", "Battle / build-up cameras", "", None),
         ("capture", "trackside_cameras", "cams", "Pass cameras", "", None),
@@ -237,6 +238,24 @@ class Job:
 JOB = Job()
 
 
+def live_cameras() -> dict:
+    """Camera groups loaded in iRacing right now, including custom ones from the camera tool."""
+    try:
+        import irsdk
+
+        ir = irsdk.IRSDK()
+        if not ir.startup():
+            return dict(ok=False, error="iRacing isn't running with a session or replay open.")
+        try:
+            groups = [str(g["GroupName"]) for g in (ir["CameraInfo"] or {}).get("Groups", [])]
+            track = (ir["WeekendInfo"] or {}).get("TrackDisplayName", "")
+        finally:
+            ir.shutdown()
+        return dict(ok=True, cameras=groups, track=track)
+    except Exception as e:  # noqa: BLE001
+        return dict(ok=False, error=str(e))
+
+
 # ------------------------------------------------------------------ data
 def projects(cfg) -> list[dict]:
     root = output_root(cfg)
@@ -266,11 +285,35 @@ def settings_payload(cfg) -> dict:
     for title, fields in FIELDS:
         items = []
         for sec, key, typ, label, hint, opts in fields:
-            items.append(dict(section=sec, key=key, type=typ, label=label, hint=hint, options=opts,
-                              value=(raw.get(sec) or {}).get(key)))
+            val = (raw.get(sec) or {}).get(key)
+            item = dict(section=sec, key=key, type=typ, label=label, hint=hint, options=opts, value=val)
+            if typ == "secret":  # the browser only learns whether one is saved
+                item["value"], item["is_set"] = "", bool(val)
+            items.append(item)
         groups.append(dict(title=title, fields=items))
     return dict(groups=groups, pronunciations=raw.get("pronunciations", {}), pronouns=raw.get("pronouns", {}),
-                raw=CONFIG.read_text(encoding="utf-8"))
+                raw=mask_secrets(CONFIG.read_text(encoding="utf-8")))
+
+
+SECRET_KEYS = ("obs_password",)
+MASK = "********"
+
+
+def mask_secrets(text: str) -> str:
+    """Hide secret values in config text sent to the browser."""
+    for k in SECRET_KEYS:
+        text = re.sub(rf'(?m)^({k}\s*=\s*)"(.+)"', lambda m: f'{m.group(1)}"{MASK}"', text)
+    return text
+
+
+def unmask_secrets(new_text: str) -> str:
+    """Put the real secret back where the browser sent the mask unchanged."""
+    current = CONFIG.read_text(encoding="utf-8")
+    for k in SECRET_KEYS:
+        m = re.search(rf'(?m)^{k}\s*=\s*"(.*)"', current)
+        if m:
+            new_text = re.sub(rf'(?m)^({k}\s*=\s*)"{re.escape(MASK)}"', lambda x: f'{x.group(1)}"{m.group(1)}"', new_text)
+    return new_text
 
 
 def coerce(typ: str, v):
@@ -304,7 +347,19 @@ def serve(port: int = 8760, open_browser: bool = True):
             n = int(self.headers.get("Content-Length", 0))
             return json.loads(self.rfile.read(n) or b"{}")
 
+        def _local(self) -> bool:
+            host = (self.headers.get("Host") or "").split(":")[0]
+            origin = self.headers.get("Origin")
+            ok_host = host in ("127.0.0.1", "localhost")
+            ok_origin = origin is None or re.match(r"^http://(127\.0\.0\.1|localhost)(:\d+)?$", origin)
+            if not (ok_host and ok_origin):
+                self._json({"error": "forbidden"}, 403)
+                return False
+            return True
+
         def do_GET(self):
+            if not self._local():
+                return
             u = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
             cfg = load_config()
@@ -323,6 +378,8 @@ def serve(port: int = 8760, open_browser: bool = True):
                 return self._json(JOB.snapshot(int(q.get("since", 0))))
             if u.path == "/api/settings":
                 return self._json(settings_payload(cfg))
+            if u.path == "/api/livecams":
+                return self._json(live_cameras())
             if u.path == "/api/script":
                 p = output_root(cfg) / q.get("project", "") / "script.json"
                 return self._json(json.loads(p.read_text(encoding="utf-8")) if p.exists() else {})
@@ -362,6 +419,8 @@ def serve(port: int = 8760, open_browser: bool = True):
                     left -= len(chunk)
 
         def do_POST(self):
+            if not self._local():
+                return
             u = urlparse(self.path)
             body = self._body()
             cfg = load_config()
@@ -385,7 +444,14 @@ def serve(port: int = 8760, open_browser: bool = True):
                     raw = tomllib.loads(CONFIG.read_text(encoding="utf-8"))
                     changes = []
                     for c in body.get("changes", []):
-                        v = coerce(types.get((c["section"], c["key"]), "str"), c["value"])
+                        typ = types.get((c["section"], c["key"]), "str")
+                        if typ == "secret":
+                            if c.get("clear"):
+                                changes.append((c["section"], c["key"], ""))
+                            elif str(c.get("value", "")).strip():
+                                changes.append((c["section"], c["key"], str(c["value"]).strip()))
+                            continue  # empty box = keep the saved one
+                        v = coerce(typ, c["value"])
                         old = (raw.get(c["section"]) or {}).get(c["key"])
                         if old is None or old != v or type(old) is bool != (type(v) is bool):
                             changes.append((c["section"], c["key"], v))  # only touch what changed
@@ -397,7 +463,7 @@ def serve(port: int = 8760, open_browser: bool = True):
                     set_config_values(changes)
                     return self._json({"ok": True, "saved": len(changes)})
                 if u.path == "/api/rawconfig":
-                    text = body.get("text", "")
+                    text = unmask_secrets(body.get("text", ""))
                     tomllib.loads(text)
                     CONFIG.write_text(text.replace("\r\n", "\n"), encoding="utf-8")
                     return self._json({"ok": True})
@@ -524,6 +590,8 @@ video{width:100%;max-height:70vh;background:#000;border-radius:8px}
 <section id="tab-settings" class="hide"><div id="sgroups"></div>
   <div class="card" style="margin-top:14px"><h3>Name pronunciations and pronouns</h3><p>How the voice says a name (write it the way it sounds), and which pronouns to use.</p>
     <div id="prons"></div><button class="sec" onclick="addPron()">+ add a name</button></div>
+  <div class="card" style="margin-top:14px"><h3>Cameras from iRacing</h3><p>Reads the camera groups loaded in iRacing right now, including custom groups you made or loaded in iRacing's camera tool. Click one to add it to <i>Your custom cameras</i>; after that it appears in every camera list and on the review page.</p>
+    <button class="sec" onclick="readLive()">Read cameras from iRacing</button><div class="chips" id="livecams" style="margin-top:10px"></div></div>
   <div class="row" style="margin-top:14px"><button class="go" onclick="saveSettings()">Save settings</button><span class="dim">Saved straight into config.toml.</span></div>
   <details class="card" style="margin-top:14px"><summary style="cursor:pointer">Advanced: edit config.toml directly</summary>
     <textarea id="raw" style="min-height:420px;font:13px Consolas,monospace;margin-top:10px"></textarea>
@@ -583,7 +651,10 @@ async function saveScript(rebuild){const texts={};document.querySelectorAll("#sl
   const j=await post("/api/script",{project:cur(),texts});if(!j.ok)return;toast("Script saved");
   if(rebuild){await run(["voice"],true);const w=setInterval(async()=>{if(!jobRunning){clearInterval(w);const j2=await (await fetch("/api/job")).json();if(!j2.error)run(["render"],true)}},2500);
     document.querySelector('nav button[data-tab="run"]').click()}}
-async function loadSettings(){S=await (await fetch("/api/settings")).json();const p=P.find(x=>x.name===cur());const cams=p?p.cameras:[];const drivers=p?p.drivers:[];
+let LIVE=[];
+async function loadSettings(){S=await (await fetch("/api/settings")).json();const p=P.find(x=>x.name===cur());const drivers=p?p.drivers:[];
+  const custom=((S.groups.flatMap(g=>g.fields).find(f=>f.key==="custom_cameras")||{}).value)||[];
+  const cams=[...new Set([...(p?p.cameras:[]),...LIVE,...custom])];
   const models=ST.models||[];
   $("sgroups").innerHTML=S.groups.map((g,gi)=>`<div class="card" style="margin-bottom:14px"><h3>${esc(g.title)}</h3><div class="fields">${g.fields.map((f,fi)=>{
     const id=`f_${gi}_${fi}`,v=f.value;let inp="";
@@ -593,6 +664,8 @@ async function loadSettings(){S=await (await fetch("/api/settings")).json();cons
     else if(f.type==="persona")inp=`<select id="${id}"><option value="" ${!v?"selected":""}>None (normal announcer)</option><option value="gilmore" ${v==="gilmore"?"selected":""}>Happy Gilmore</option>${v&&v!=="gilmore"?`<option selected>${esc(v)}</option>`:""}</select>`;
     else if(f.type==="model")inp=`<input type="text" id="${id}" list="models" value="${esc(v)}"><datalist id="models">${models.map(m=>`<option value="${esc(m)}">`).join("")}</datalist>`;
     else if(f.type==="driver")inp=`<input type="text" id="${id}" list="drv_${id}" value="${esc(v)}"><datalist id="drv_${id}"><option value="auto">${drivers.map(d=>`<option value="${esc(d.number)}">${esc(d.name)}</option>`).join("")}</datalist>`;
+    else if(f.type==="secret")inp=`<input type="password" id="${id}" autocomplete="new-password" placeholder="${f.is_set?"Saved - type to replace":"Not set"}">`+
+      (f.is_set?`<label style="margin-top:6px;display:block"><input type="checkbox" id="${id}_clear"> remove saved password</label>`:"");
     else if(f.type==="cams")inp=`<input type="text" id="${id}" value="${esc((v||[]).join(", "))}"><div class="chips">${cams.map(c=>`<span class="chip" onclick="addCam('${id}','${esc(c)}')">${esc(c)}</span>`).join("")}</div>`;
     else if(f.type==="text")inp=`<textarea id="${id}">${esc(v)}</textarea>`;
     else inp=`<input type="text" id="${id}" value="${esc(v)}">`;
@@ -603,10 +676,16 @@ function pronRow(n,say,pro){return `<div class="row pron"><input type="text" cla
 function addPron(){$("prons").insertAdjacentHTML("beforeend",pronRow("","",""))}
 function addCam(id,c){const e=$(id);const l=e.value.split(",").map(x=>x.trim()).filter(Boolean);if(!l.includes(c))l.push(c);e.value=l.join(", ")}
 async function saveSettings(){const changes=[];S.groups.forEach((g,gi)=>g.fields.forEach((f,fi)=>{const e=$(`f_${gi}_${fi}`);if(!e)return;
+  if(f.type==="secret"){const c=$(`f_${gi}_${fi}_clear`);changes.push({section:f.section,key:f.key,value:e.value,clear:!!(c&&c.checked)});e.value="";return}
   let v=f.type==="bool"?e.checked:e.value;if(f.type==="num"&&v==="")return;changes.push({section:f.section,key:f.key,value:v})}));
   const pron={},pro={};document.querySelectorAll(".pron").forEach(r=>{const n=r.querySelector(".pn").value.trim();if(!n)return;
     const s=r.querySelector(".ps").value.trim(),p=r.querySelector(".pp").value.trim();if(s)pron[n]=s;if(p)pro[n]=p});
   const j=await post("/api/settings",{changes,pronunciations:pron,pronouns:pro});if(j.ok){toast("Settings saved");loadSettings()}}
+async function readLive(){const j=await (await fetch("/api/livecams")).json();
+  if(!j.ok){toast(j.error,true);return}LIVE=j.cameras;
+  const fid=(()=>{let r=null;S.groups.forEach((g,gi)=>g.fields.forEach((f,fi)=>{if(f.key==="custom_cameras")r=`f_${gi}_${fi}`}));return r})();
+  $("livecams").innerHTML=`<span class="dim" style="width:100%">${esc(j.track)}: ${j.cameras.length} camera groups</span>`+
+    j.cameras.map(c=>`<span class="chip" onclick="addCam('${fid}','${esc(c)}');toast('Added ${esc(c)} - click Save settings')">${esc(c)}</span>`).join("")}
 async function saveRaw(){const j=await post("/api/rawconfig",{text:$("raw").value});if(j.ok){toast("config.toml saved");loadSettings()}}
 pollStatus();loadProjects();pollJob();setInterval(pollJob,1000);setInterval(pollStatus,6000);
 </script></body></html>

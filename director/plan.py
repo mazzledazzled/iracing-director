@@ -62,7 +62,7 @@ def _resolve_cam(name: str, cams: list[dict]) -> dict:
     for c in cams:
         if low in c["name"].lower():
             return c
-    return cams[0]
+    return dict(num=-1, name=name)  # a custom group: looked up by name in iRacing when recording
 
 
 def label_for(ev: dict, race: dict) -> str:

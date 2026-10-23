@@ -64,7 +64,8 @@ def _move_when_free(src: Path, dst: Path, timeout: float = 20.0):
 
 def clip_sig(clip: dict) -> str:
     """Fingerprint of what a clip records: if it's unchanged, the existing recording is reused."""
-    shots = [(round(s["at"], 1), s["car"], s["cam"]) for s in clip.get("shots", [])]
+    shots = [(round(s["at"], 1), s["car"], s["cam"] if s.get("cam", -1) >= 0 else s.get("cam_name"))
+             for s in clip.get("shots", [])]
     return json.dumps([round(clip["start"], 1), round(clip["end"], 1), shots])
 
 
@@ -107,6 +108,18 @@ def capture(proj, race: dict, plan: dict, cfg, only: list[int] | None = None, pr
     obs = OBS(cfg)
     sn = race["session_num"]
     settle = float(cfg.capture.settle_seconds)
+    live = sim.live_cameras()
+    missing = set()
+
+    def cam_num(shot):
+        name = str(shot.get("cam_name", "")).strip().lower()
+        if name in live:
+            return live[name]
+        if name:
+            missing.add(shot.get("cam_name"))
+        fallback = next((v for k, v in live.items() if k in ("tv1", "tv2", "chase")), None)
+        return shot["cam"] if shot.get("cam", -1) >= 0 else (fallback or 1)
+
     try:
         for clip in plan["clips"]:
             cid = clip["id"]
@@ -126,7 +139,7 @@ def capture(proj, race: dict, plan: dict, cfg, only: list[int] | None = None, pr
                 progress("    couldn't jump to this moment in the race session - skipped (try again with --clips)")
                 continue
             if shots:
-                sim.camera(shots[0]["number"], shots[0]["cam"])
+                sim.camera(shots[0]["number"], cam_num(shots[0]))
             if cfg.capture.hide_ui:
                 sim.hide_ui()
             time.sleep(settle)
@@ -153,7 +166,7 @@ def capture(proj, race: dict, plan: dict, cfg, only: list[int] | None = None, pr
                 t = sim["SessionTime"] or 0.0
                 while next_shot < len(shots) and t >= shots[next_shot]["at"]:
                     s = shots[next_shot]
-                    sim.camera(s["number"], s["cam"])
+                    sim.camera(s["number"], cam_num(s))
                     next_shot += 1
                 if t >= clip["end"]:
                     break
@@ -175,6 +188,9 @@ def capture(proj, race: dict, plan: dict, cfg, only: list[int] | None = None, pr
                 wall_seconds=round(time.time() - rec_t0, 2),
             )
             proj.save(manifest_name, manifest)
+        if missing:
+            progress("  NOTE: these cameras aren't loaded in iRacing, so a TV/chase camera was used instead: "
+                     + ", ".join(sorted(missing)) + ". Load your saved camera set in iRacing's camera tool first.")
     finally:
         try:
             if obs.recording():

@@ -50,6 +50,9 @@ finish_cameras = ["TV1", "Blimp"]             # chequered flag
 onboard_cameras = ["Cockpit", "Roll Bar"]     # your own car, now and then
 onboard_for_focus = true
 hide_ui = true
+# Camera groups you made/saved in iRacing's camera tool (exact names). Load that camera set in
+# iRacing before recording; the app looks cameras up by name in iRacing when it records.
+custom_cameras = []
 # After recording, close iRacing and OBS automatically so the commentary model and voice
 # get the GPU memory (used by "run.bat all" and "run.bat remake").
 auto_close_apps = true
