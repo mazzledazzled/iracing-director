@@ -1,0 +1,20 @@
+# personal settings (OBS password, voice sample, names) - made from config.example.toml on first run
+config.toml
+# voice samples you record
+myvoice.*
+*.m4a
+*.wav
+*.mp3
+# environments and downloaded models
+.venv/
+.venv-voice/
+models/
+# races, recordings, videos, logs
+output/
+*.mp4
+*.mkv
+*.log
+__pycache__/
+*.pyc
+# fonts are downloaded by setup.bat (SIL Open Font License)
+assets/fonts/

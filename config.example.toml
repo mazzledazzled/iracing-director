@@ -1,0 +1,133 @@
+# iRacing Replay Director - settings
+# Template. On first run the app copies this to config.toml (your own copy, not in git).
+# Edit settings in the dashboard (dashboard.bat) or in config.toml.
+
+[project]
+# Where each replay's working files and the final video go.
+output_dir = "output"
+
+[focus]
+# Empty = every driver is treated the same (default). "auto" = favour whoever recorded the
+# replay (extra screen time, onboard shots, highlighted in the tower). Or a car number, e.g. "28".
+car_number = ""
+score_multiplier = 1.6
+
+[scan]
+# Replay speed used for the fast analysis pass (1, 2, 4, 8, 16).
+speed = 16
+# Also ask iRacing for its own incident markers (recommended).
+use_iracing_incidents = true
+
+[highlights]
+# Target length of the finished video, in seconds (excluding title/results cards).
+target_seconds = 360
+# Seconds of footage shown before / after each moment.
+pre_roll = 6.0
+post_roll = 5.0
+# A battle counts when two cars are this close (seconds) for at least min_battle_seconds.
+battle_gap = 0.8
+min_battle_seconds = 8
+# Ignore anything in the first N seconds after green except the start itself.
+include_start = true
+# How strongly to share screen time around the field (0 = just the best moments, 0.35 = balanced).
+spread = 0.35
+# Open the review page (in your browser) before recording, in "all" and "remake".
+review_before_capture = true
+include_finish = true
+
+[capture]
+obs_host = "localhost"
+obs_port = 4455
+obs_password = ""
+# Seconds to wait after seeking before recording, so iRacing finishes loading the scene.
+settle_seconds = 2.0
+# Camera groups (names as in iRacing's camera list). The director picks by situation:
+start_cameras = ["Chopper", "Blimp"]          # race start
+chase_cameras = ["Far Chase", "Chase"]        # battles / build-up to a pass (both cars in frame)
+trackside_cameras = ["TV1", "TV2", "TV3"]     # the moment of a pass
+incident_cameras = ["TV2", "TV1", "TV3"]      # spins and crashes
+finish_cameras = ["TV1", "Blimp"]             # chequered flag
+onboard_cameras = ["Cockpit", "Roll Bar"]     # your own car, now and then
+onboard_for_focus = true
+hide_ui = true
+# After recording, close iRacing and OBS automatically so the commentary model and voice
+# get the GPU memory (used by "run.bat all" and "run.bat remake").
+auto_close_apps = true
+
+[commentary]
+# Ollama must be running (https://ollama.com). Pull the model first, e.g.:  ollama pull mistral-small3.2
+# 16 GB GPU: mistral-small3.2 (best)  |  8-12 GB: gemma3:12b or llama3.1:8b
+ollama_url = "http://localhost:11434"
+model = "mistral-small3.2"
+style = "a laid-back, dry-witted baseball radio announcer who has somehow ended up calling a car race"
+# Roughly how fast the voice speaks; used to size each line to its clip.
+words_per_second = 2.6
+temperature = 0.75
+# Optional second pass that rewrites every line in a character's voice.
+# "gilmore" = Happy Gilmore grabs the mic. Or describe any voice in words. Empty = normal announcer.
+persona = ""
+
+[tts]
+# "chatterbox" (most natural + excited, needs setup_chatterbox.bat and an NVIDIA GPU),
+# "kokoro" (good, fast, local), "piper", or "sapi" (built-in Windows voice).
+engine = "chatterbox"
+# Chatterbox copies the voice in this WAV (10-20 s of one person speaking clearly, no music).
+# Leave empty to copy the Kokoro voice below.
+chatterbox_reference = ""
+# Energy: 0.5 = natural, 0.7+ = more excited (too high sounds forced). Big moments get a bit extra.
+chatterbox_exaggeration = 0.5
+# Pace/steadiness: 0.5 = natural. Lower = faster and punchier, higher = slower and more careful.
+chatterbox_cfg = 0.5
+kokoro_voice = "bm_george"
+kokoro_speed = 1.08
+piper_model = ""          # path to a piper .onnx voice if engine = "piper"
+
+[short]
+# "A race in 30": run.bat short  -> vertical 9:16 video of one driver's race, no commentary.
+driver = "auto"          # whose race: "auto" = whoever recorded the replay, or a car number like "28"
+seconds = 30
+beat_seconds = 3.2       # length of each moment
+end_card_seconds = 2.2
+layout = "fit"           # "fit" = 16:9 footage zoomed in the middle over a blurred fill; "crop" = full-screen crop
+zoom = 1.35              # fit layout: how much to zoom the footage (1.0 = whole frame, bigger = closer)
+review = true            # open the review page to change angles/timing/captions before recording
+fps = 30
+music = ""               # optional music file (mp3/wav) under the game sound
+music_volume = 0.35
+game_volume = 1.0
+# Camera angles per kind of moment (names from iRacing's camera list; rotates through the list).
+start_cameras = ["Chopper", "Blimp"]
+overtake_cameras = ["Chase", "TV1"]       # you pass someone
+lost_cameras = ["TV1", "Far Chase"]       # someone passes you
+battle_cameras = ["Far Chase", "Chase"]
+incident_cameras = ["TV2", "TV1"]
+restart_cameras = ["Chase"]
+finish_cameras = ["TV1", "Blimp"]
+
+# How the voice should say names (written the way it sounds). Applies to every line.
+[pronunciations]
+# Kowalski = "Ko-VAL-ski"
+
+
+# Pronouns the commentator should use for particular drivers.
+[pronouns]
+# Kowalski = "he/him"
+
+
+[render]
+width = 1920
+height = 1080
+fps = 60
+# Game audio level while the commentator is speaking (0-1) and when not.
+game_volume = 1.0
+duck_ratio = 6
+commentary_volume = 1.6
+show_lower_thirds = true
+title_card_seconds = 4.0
+results_card_seconds = 7.0
+font = "C:/Windows/Fonts/arialbd.ttf"
+crf = 20
+# Transition swoosh loudness (0 = off).
+whoosh_volume = 0.12
+# Light broadcast processing on the commentator (less dry/robotic).
+voice_polish = true
