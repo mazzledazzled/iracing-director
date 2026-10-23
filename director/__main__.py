@@ -52,6 +52,8 @@ def cmd_plan(cfg, args, proj=None):
     from .plan import make_plan
 
     proj = proj or open_project(cfg, args.name)
+    if getattr(args, "setup", False):
+        race_setup(cfg, args, proj, "highlights")
     step("Finding highlights")
     race = proj.load("race.json")
     det = detect_all(race, cfg)
@@ -189,8 +191,31 @@ def free_gpu(cfg):
         print("  done")
 
 
+def race_setup(cfg, args, proj, mode: str):
+    """After the scan, when the drivers are known: pick the featured driver and the length."""
+    if mode == "short":
+        if args.driver or args.no_setup:
+            return
+        sc = cfg.get("short") or {}
+        defaults = dict(featured=str(sc.get("driver", "auto")), length=float(args.seconds or sc.get("seconds", 30)))
+    else:
+        if args.featured or args.no_setup:
+            return
+        defaults = dict(featured=str(cfg.focus.car_number or "all"), length=float(args.length or cfg.highlights.target_seconds))
+    from .setup_page import choose
+
+    step("Race setup: pick the featured driver and length in your browser")
+    res = choose(proj, proj.load("race.json"), mode, defaults)
+    if mode == "short":
+        args.driver, args.seconds = res["featured"], res["length"]
+    else:
+        cfg.focus["car_number"] = "" if res["featured"] == "all" else res["featured"]
+        cfg.highlights["target_seconds"] = res["length"]
+
+
 def cmd_all(cfg, args):
     proj = cmd_scan(cfg, args)
+    race_setup(cfg, args, proj, "highlights")
     cmd_plan(cfg, args, proj)
     maybe_review(cfg, args, proj)
     cmd_capture(cfg, args, proj)
@@ -202,6 +227,7 @@ def cmd_all(cfg, args):
 def cmd_remake(cfg, args):
     """Everything after the scan, on the latest (or --name) project. Use after changing settings."""
     proj = open_project(cfg, args.name)
+    race_setup(cfg, args, proj, "highlights")
     cmd_plan(cfg, args, proj)
     maybe_review(cfg, args, proj)
     cmd_capture(cfg, args, proj)
@@ -222,6 +248,7 @@ def cmd_short(cfg, args):
         step("Finding the action")
         proj.save("events.json", detect_all(race, cfg))
     det = proj.load("events.json")
+    race_setup(cfg, args, proj, "short")
     driver = resolve_driver(race, args.driver or sc.get("driver", "auto"))
     seconds = float(args.seconds or sc.get("seconds", 30))
     step(f"Picking the moments for a {seconds:.0f}-second short")
@@ -329,6 +356,8 @@ def main(argv=None):
     p.add_argument("--voice", help="override tts engine (kokoro/piper/sapi/test)")
     p.add_argument("--no-review", dest="no_review", action="store_true", help="skip the review page in all/remake")
     p.add_argument("--force", action="store_true", help="capture: re-record every clip, even unchanged ones")
+    p.add_argument("--setup", action="store_true", help="plan: open the race setup page (featured driver, length) first")
+    p.add_argument("--no-setup", dest="no_setup", action="store_true", help="skip the race setup page and use config.toml")
     p.add_argument("--featured", help='featured driver: "all" (everyone equal), "auto" (who recorded it) or a car number')
     p.add_argument("--length", type=float, help="highlights video: target length in seconds")
     p.add_argument("--driver", help='short: whose race (car number or name; default: whoever recorded the replay)')

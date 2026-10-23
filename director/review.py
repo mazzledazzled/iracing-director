@@ -272,7 +272,7 @@ input.t{width:78px}textarea{width:100%;min-height:38px;resize:vertical}
 <button onclick="addClip()">+ Add a moment it missed</button><button class="primary" onclick="save()">Save and continue</button></header>
 <main>
 <p class="help">Untick clips you don't want. Times are race time (m:ss) as used by the app. Shots are seconds into the clip.
-Notes go straight to the commentator as facts, e.g. <i>"Reyes pushed Kowalski wide"</i>. After recording, clips you change get re-recorded; the rest are kept.</p>
+Notes go straight to the commentator as facts, e.g. <i>"the car in second pushed the leader wide"</i>. After recording, clips you change get re-recorded; the rest are kept.</p>
 <div class="laps" id="laps"></div>
 <div id="list"></div></main><div class="toast" id="toast"></div>
 <script>

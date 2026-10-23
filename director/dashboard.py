@@ -29,9 +29,8 @@ CONFIG = ROOT / "config.toml"
 # (section, key, type, label, help, options)
 FIELDS = [
     ("Highlights video", [
-        ("highlights", "target_seconds", "num", "Length (seconds)", "Target length of the highlights video", None),
+        ("highlights", "target_seconds", "num", "Default length (seconds)", "Suggested on the race setup page", None),
         ("highlights", "spread", "num", "Share screen time", "0 = only the best moments, 0.35 = balanced, 0.5+ = spread wide", None),
-        ("focus", "car_number", "driver", "Favourite driver", "Empty = everyone equal. 'auto' = whoever recorded the replay", None),
         ("highlights", "review_before_capture", "bool", "Review page before recording", "", None),
         ("highlights", "battle_gap", "num", "Battle gap (s)", "How close two cars must be to count as a battle", None),
         ("highlights", "min_battle_seconds", "num", "Battle minimum (s)", "How long they must stay close", None),
@@ -70,8 +69,7 @@ FIELDS = [
         ("capture", "onboard_cameras", "cams", "Onboard cameras", "", None),
     ]),
     ("Race in 30 (TikTok)", [
-        ("short", "driver", "driver", "Whose race", "'auto' = whoever recorded the replay", None),
-        ("short", "seconds", "num", "Length (seconds)", "", None),
+        ("short", "seconds", "num", "Default length (seconds)", "Suggested on the race setup page", None),
         ("short", "beat_seconds", "num", "Seconds per moment", "", None),
         ("short", "layout", "select", "Layout", "fit = zoomed middle + blurred fill, crop = full screen", ["fit", "crop"]),
         ("short", "zoom", "num", "Zoom (fit layout)", "", None),
@@ -221,9 +219,18 @@ class Job:
         step = next((l.strip("= ").strip() for l in reversed(self.lines) if l.startswith("== ")), "")
         done = next((l.split("DONE:", 1)[1].strip() for l in reversed(self.lines) if "DONE:" in l), None)
         err = next((l.split("ERROR:", 1)[1].strip() for l in reversed(self.lines) if l.startswith("ERROR:")), None)
-        review = next((m.group(0) for l in reversed(self.lines) if (m := re.search(r"http://127\.0\.0\.1:\d+/", l))), None)
+        waiting = None  # a setup or review page the user still has to fill in
+        for i in range(len(self.lines) - 1, -1, -1):
+            l = self.lines[i]
+            m = re.search(r"(setup|review) page: (http://127\.0\.0\.1:\d+/)", l)
+            if m:
+                later = self.lines[i + 1:]
+                finished = any(x.strip().startswith("featured:" if m.group(1) == "setup" else "saved:") for x in later)
+                if not finished:
+                    waiting = dict(kind=m.group(1), url=m.group(2))
+                break
         return dict(running=self.running, cmd=self.cmd, lines=lines, total=total, step=step, done=done,
-                    error=err, code=self.code, review=review if self.running else None,
+                    error=err, code=self.code, waiting=waiting if self.running else None,
                     elapsed=int(time.time() - self.started) if self.started else 0)
 
 
@@ -477,26 +484,22 @@ video{width:100%;max-height:70vh;background:#000;border-radius:8px}
 <main>
 <section id="tab-run">
   <div class="row"><label>Race</label><select id="proj" style="min-width:320px"></select><span class="dim" id="projinfo"></span></div>
-  <div class="card" style="margin-bottom:14px"><h3>Video options</h3><p>Used by the buttons below. Changing the featured driver re-picks the highlights.</p>
-    <div class="row"><label>Featured driver</label><select id="opt_featured" style="min-width:260px"></select>
-      <label style="margin-left:14px">Highlights length</label><input type="number" id="opt_len" min="1" max="30" step="0.5" style="width:80px"><span class="dim">min</span>
-      <label style="margin-left:14px">Race in 30 length</label><input type="number" id="opt_short_len" min="10" max="180" step="5" style="width:80px"><span class="dim">sec</span></div>
-    <div class="dim" id="opt_hint" style="font-size:13px"></div></div>
+  <p class="dim" style="margin:0 0 14px">After each scan, a <b>race setup</b> page opens with that race's drivers: pick the featured driver (or type a name or car number) and the video length there.</p>
   <div class="grid">
     <div class="card hero"><h3>Full highlights video</h3><p>Scans the replay open in iRacing, picks the moments, records them, writes and voices the commentary, builds the video. Closes iRacing + OBS when recording is done.</p>
       <div class="row"><label>Voice</label><select id="persona_all"><option value="">Normal announcer</option><option value="gilmore">Happy Gilmore</option></select></div>
       <button class="go" onclick="runAll()">Start</button></div>
-    <div class="card hero"><h3>A race in 30 (TikTok)</h3><p>The featured driver's race as a short vertical video, plus clean clips for TikTok's editor. No commentary. With "All drivers" it shows the race's best moments.</p>
+    <div class="card hero"><h3>A race in 30 (TikTok)</h3><p>A short vertical video of one driver's race (or the race's best moments), plus clean clips for TikTok's editor. No commentary.</p>
       <div class="row"><label><input type="checkbox" id="short_reuse"> Use the selected race (don't scan again)</label></div>
       <button class="go" onclick="runShort()">Start</button></div>
     <div class="card"><h3>Rebuild from the last scan</h3><p>Changed settings? Re-picks highlights for the selected race and rebuilds everything. Needs the same replay open.</p>
       <div class="row"><label>Voice</label><select id="persona_remake"><option value="">Normal announcer</option><option value="gilmore">Happy Gilmore</option></select></div>
-      <button class="go" onclick="run(['remake'].concat(pa('persona_remake'),opts()),true)">Start</button></div>
+      <button class="go" onclick="run(['remake'].concat(pa('persona_remake')),true)">Start</button></div>
   </div>
   <div class="card" style="margin-top:14px"><h3>Single steps</h3><p>For fixing one part. iRacing + OBS are needed for <i>Scan</i> and <i>Record</i>; close them before <i>Commentary</i> and <i>Voice</i>.</p>
     <div class="steps">
       <button class="sec" onclick="run(['scan'])">1 · Scan</button>
-      <button class="sec" onclick="run(['plan'].concat(opts()),true)">2 · Pick highlights</button>
+      <button class="sec" onclick="run(['plan','--setup'],true)">2 · Pick highlights</button>
       <button class="sec" onclick="run(['review'],true)">3 · Review clips</button>
       <button class="sec" onclick="run(['capture'],true)">4 · Record changed clips</button>
       <button class="sec" onclick="run(['commentary'].concat(pa('persona_all')),true)">5 · Commentary</button>
@@ -536,31 +539,12 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{document.query
   ["run","videos","script","settings"].forEach(t=>$("tab-"+t).classList.toggle("hide",t!==b.dataset.tab));
   if(b.dataset.tab==="script")loadScript();if(b.dataset.tab==="settings")loadSettings();if(b.dataset.tab==="videos")renderVideos()});
 const cur=()=>$("proj").value;
-function store(k,v){try{localStorage.setItem("idir_"+k,v)}catch(e){}}
-function recall(k){try{return localStorage.getItem("idir_"+k)}catch(e){return null}}
-function opts(){const f=$("opt_featured").value||"all";const a=["--featured",f];
-  const m=parseFloat($("opt_len").value);if(m>0)a.push("--length",String(Math.round(m*60)));return a}
-function optHint(){const f=$("opt_featured");const t=f.options[f.selectedIndex]?f.options[f.selectedIndex].text:"";
-  $("opt_hint").textContent=f.value==="all"?"Every driver is treated the same: screen time is shared around the field.":
-   `${t} gets extra screen time, their onboard shots and the highlight in the position tower. Race in 30 tells their story.`}
-async function initOpts(){let d={};try{const st=await (await fetch("/api/settings")).json();
-  st.groups.forEach(g=>g.fields.forEach(f=>d[f.section+"."+f.key]=f.value))}catch(e){}
-  const cn=recall("featured")??(d["focus.car_number"]===""||d["focus.car_number"]==null?"all":String(d["focus.car_number"]));
-  $("opt_featured").dataset.want=cn;
-  $("opt_len").value=recall("len")??((d["highlights.target_seconds"]||360)/60);
-  $("opt_short_len").value=recall("slen")??(d["short.seconds"]||30);fillFeatured();
-  const s2=$("opt_featured");if([...s2.options].some(o=>o.value===cn))s2.value=cn;optHint()}
-function fillFeatured(){const sel=$("opt_featured"),want=sel.value||sel.dataset.want||"all";const p=P.find(x=>x.name===cur());
-  sel.innerHTML=`<option value="all">All drivers (everyone equal)</option><option value="auto">Whoever recorded the replay</option>`+
-    (p?p.drivers.map(x=>`<option value="${esc(x.number)}">#${esc(x.number)} ${esc(x.name)}</option>`).join(""):"");
-  sel.value=[...sel.options].some(o=>o.value===want)?want:"all";optHint()}
-["opt_featured","opt_len","opt_short_len"].forEach(id=>$(id).addEventListener("change",()=>{store({opt_featured:"featured",opt_len:"len",opt_short_len:"slen"}[id],$(id).value);optHint()}));
 const pa=id=>$(id).value?["--persona",$(id).value]:["--persona","none"];
 async function run(args,needsProj){if(jobRunning){toast("Something is already running",true);return}
   if(needsProj&&cur())args=args.concat(["--name",cur()]);const j=await post("/api/run",{args});if(j.ok){since=0;$("log").textContent="";toast("Started: "+args[0])}}
 function runAll(){const need=[];if(!ST.replay)need.push("the replay in iRacing");if(!ST.obs_ws)need.push("OBS (with WebSocket on)");
-  if(need.length&&!confirm("Not ready: "+need.join(" and ")+". Start anyway?"))return;run(["all"].concat(pa("persona_all"),opts()))}
-function runShort(){const a=["short","--seconds",$("opt_short_len").value||"30","--driver",$("opt_featured").value||"all"];
+  if(need.length&&!confirm("Not ready: "+need.join(" and ")+". Start anyway?"))return;run(["all"].concat(pa("persona_all")))}
+function runShort(){const a=["short"];
   if($("short_reuse").checked){a.push("--reuse","--name",cur())}else{if(!ST.replay&&!confirm("The replay doesn't look open in iRacing. Start anyway?"))return}
   if(!ST.obs_ws&&!confirm("OBS isn't reachable (open it, WebSocket on). Start anyway?"))return;run(a)}
 function light(name,state,text){return `<span class="light"><span class="dot ${state}"></span>${esc(name)}${text?`: ${esc(text)}`:""}</span>`}
@@ -573,7 +557,6 @@ async function loadProjects(){P=await (await fetch("/api/projects")).json();cons
   sel.innerHTML=P.map(p=>`<option value="${esc(p.name)}" ${(keep?p.name===keep:p.latest)?"selected":""}>${esc(p.track)} - ${esc(p.name)} (${esc(p.when)})</option>`).join("")||"<option value=''>No races yet - run a scan</option>";
   projChanged()}
 function projChanged(){const p=P.find(x=>x.name===cur());$("projinfo").textContent=p?`${p.drivers.length} drivers · ${p.videos.length} video(s)`:"";
-  fillFeatured();
   if(cur())post("/api/latest",{project:cur()})}
 $("proj").onchange=projChanged;
 function renderVideos(){$("vlist").innerHTML=P.map(p=>`<div class="proj"><div class="t"><b>${esc(p.track)}</b><span class="dim">${esc(p.name)} · ${esc(p.when)}</span></div>
@@ -588,7 +571,8 @@ async function pollJob(){try{const j=await (await fetch("/api/job?since="+since)
   pill.textContent=j.running?"Running: "+j.cmd.split(" ")[0]:j.error?"Failed: "+j.cmd.split(" ")[0]:fin?"Finished: "+j.cmd.split(" ")[0]:j.cmd?"Stopped":"Idle";
   $("jobstep").textContent=j.step?("· "+j.step):"";$("jobtime").textContent=j.running?`· ${Math.floor(j.elapsed/60)}:${String(j.elapsed%60).padStart(2,"0")}`:"";
   $("btn_stop").disabled=$("btn_enter").disabled=!j.running;document.querySelectorAll(".go,.steps .sec").forEach(b=>b.disabled=j.running);
-  let b="";if(j.review)b=`<div class="banner rev">The review page is waiting for you: <a href="${j.review}" target="_blank">open it</a>, check the clips, then click <b>Save and continue</b>.</div>`;
+  let b="";if(j.waiting)b=j.waiting.kind==="setup"?`<div class="banner rev"><b>Race setup is waiting for you:</b> <a href="${j.waiting.url}" target="_blank">open it</a>, pick the featured driver and length, then click <b>Continue</b>.</div>`:
+    `<div class="banner rev"><b>The review page is waiting for you:</b> <a href="${j.waiting.url}" target="_blank">open it</a>, check the clips, then click <b>Save and continue</b>.</div>`;
   else if(j.error&&!j.running)b=`<div class="banner err"><b>Problem:</b> ${esc(j.error)}</div>`;
   else if(j.done&&!j.running)b=`<div class="banner"><b>Done.</b> ${esc(j.done)} - see the Videos tab.</div>`;
   $("jobbanner").innerHTML=b;if(!j.running&&(j.done||j.error)&&!window._refreshed){window._refreshed=true;loadProjects()}if(j.running)window._refreshed=false}catch(e){}}
@@ -624,6 +608,6 @@ async function saveSettings(){const changes=[];S.groups.forEach((g,gi)=>g.fields
     const s=r.querySelector(".ps").value.trim(),p=r.querySelector(".pp").value.trim();if(s)pron[n]=s;if(p)pro[n]=p});
   const j=await post("/api/settings",{changes,pronunciations:pron,pronouns:pro});if(j.ok){toast("Settings saved");loadSettings()}}
 async function saveRaw(){const j=await post("/api/rawconfig",{text:$("raw").value});if(j.ok){toast("config.toml saved");loadSettings()}}
-pollStatus();loadProjects().then(initOpts);pollJob();setInterval(pollJob,1000);setInterval(pollStatus,6000);
+pollStatus();loadProjects();pollJob();setInterval(pollJob,1000);setInterval(pollStatus,6000);
 </script></body></html>
 """

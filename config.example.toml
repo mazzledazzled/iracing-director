@@ -106,12 +106,12 @@ finish_cameras = ["TV1", "Blimp"]
 
 # How the voice should say names (written the way it sounds). Applies to every line.
 [pronunciations]
-# Kowalski = "Ko-VAL-ski"
+# DriverName = "how it sounds"
 
 
 # Pronouns the commentator should use for particular drivers.
 [pronouns]
-# Kowalski = "he/him"
+# DriverName = "he/him"
 
 
 [render]

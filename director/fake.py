@@ -6,11 +6,7 @@ from __future__ import annotations
 
 import numpy as np
 
-NAMES = [
-    "Max Verhoek", "Lena Fischer", "Tom Okafor", "Adam Kowalski", "Ricardo Alves",
-    "Sophie Laurent", "Kenji Sato", "Emma Novak", "Luca Bianchi", "Oscar Lindqvist",
-    "Priya Raman", "Dan Mueller",
-]
+NAMES = [f"Test Driver {i}" for i in range(1, 13)]  # made-up field for testing
 
 
 def fake_race(laps: int = 10, ref_lap: float = 90.0, dt: float = 0.27, seed: int = 4) -> dict:
@@ -77,7 +73,7 @@ def fake_race(laps: int = 10, ref_lap: float = 90.0, dt: float = 0.27, seed: int
     # iRacing reports lap 0 on the grid even though pct is ~0.99
     samples["lap"] = [[max(0, l) for l in row] for row in samples["lap"]]
     drivers = [
-        dict(idx=i, name=nm, short=nm.split()[-1], number=str(i + 2), car="Mazda MX-5 Cup",
+        dict(idx=i, name=nm, short=f"Driver {i + 1}", number=str(i + 2), car="Mazda MX-5 Cup",
              car_class="MX5", irating=2000 + 50 * i, est_lap=ref_lap)
         for i, nm in enumerate(NAMES)
     ]

@@ -15,6 +15,7 @@ Turns an iRacing replay into a highlights video with AI commentary. Everything r
 
 Double-click **`dashboard.bat`**. A control panel opens in your browser. The only things you do by hand are open the replay in iRacing and start OBS. Everything else happens from the panel:
 - **Status lights:** whether iRacing has a replay open, whether OBS is reachable, whether Ollama and its model are ready, and whether Chatterbox is installed.
+- **Race setup:** right after each scan, a page lists the drivers in that race. Pick the featured driver, or **All drivers** to treat everyone equally, or type a car number or name. Then set the video length.
 - **Run:** the full highlights video, a Race in 30, a rebuild from the last scan, or any single step. You see a live log, the current step and the elapsed time, plus Stop and Press Enter buttons. When the review page is waiting for you, a link appears.
 - **Videos:** watch every finished video in the page, or open its folder.
 - **Script:** edit any commentary line, then use "Save, re-voice and rebuild".

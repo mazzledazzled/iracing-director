@@ -37,19 +37,12 @@ def _sc(cfg):
 
 
 def resolve_driver(race: dict, want: str | None):
-    want = str(want or "auto").strip()
-    if want.lower() in ("all", "", "none"):
-        return None  # every driver: the race's best moments
-    if want.lower() == "auto":
-        f = race.get("focus_idx", -1)
-        return f if f in {d["idx"] for d in race["drivers"]} else None
-    for d in race["drivers"]:
-        if d["number"] == want.lstrip("#"):
-            return d["idx"]
-    for d in race["drivers"]:
-        if want.lower() in (d["name"].lower(), d["short"].lower()):
-            return d["idx"]
-    raise SystemExit(f"No driver '{want}' in this race. Use a car number, e.g. --driver 28, or a name.")
+    from .detect import match_driver
+
+    try:
+        return match_driver(race, want if want is not None else "auto")
+    except ValueError as e:
+        raise SystemExit(f"{e}. Use a car number, e.g. --driver 28, or a name.") from e
 
 
 def kind_for(ev: dict, me) -> str:

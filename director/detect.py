@@ -655,14 +655,34 @@ def detect_all(race: dict, cfg) -> dict:
     )
 
 
-def resolve_focus(race: dict, cfg) -> int | None:
-    want = str(cfg.focus.car_number or "").strip()
-    if not want:
+def match_driver(race: dict, text) -> int | None:
+    """Find a driver from what someone typed or picked: "all"/"" -> None (everyone equal),
+    "auto" -> whoever recorded the replay, a car number ("28" or "#28"), or a name (full or part)."""
+    want = str(text or "").strip()
+    if not want or want.lower() in ("all", "none", "everyone"):
         return None
+    ids = {d["idx"] for d in race["drivers"]}
     if want.lower() == "auto":
         f = race.get("focus_idx", -1)
-        return f if f in {d["idx"] for d in race["drivers"]} else None
+        return f if f in ids else None
+    num = want.lstrip("#").strip()
     for d in race["drivers"]:
-        if d["number"] == want:
+        if d["number"] == num:
             return d["idx"]
-    return None
+    low = want.lower()
+    for key in ("name", "short"):
+        for d in race["drivers"]:
+            if d[key].lower() == low:
+                return d["idx"]
+    hits = [d for d in race["drivers"] if len(low) >= 3 and low in d["name"].lower()]
+    if len(hits) == 1:
+        return hits[0]["idx"]
+    raise ValueError(f"No driver matching '{want}' in this race" +
+                     (f" ({len(hits)} match - be more specific)" if hits else ""))
+
+
+def resolve_focus(race: dict, cfg) -> int | None:
+    try:
+        return match_driver(race, cfg.focus.car_number)
+    except ValueError:
+        return None
