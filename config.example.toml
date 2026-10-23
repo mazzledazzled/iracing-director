@@ -58,10 +58,10 @@ custom_cameras = []
 auto_close_apps = true
 
 [commentary]
-# Ollama must be running (https://ollama.com). Pull the model first, e.g.:  ollama pull mistral-small3.2
-# 16 GB GPU: mistral-small3.2 (best)  |  8-12 GB: gemma3:12b or llama3.1:8b
+# Ollama must be running (https://ollama.com). setup.bat pulls llama3.1:8b (works on 8 GB GPUs).
+# Better if you have the memory - 16 GB GPU: mistral-small3.2  |  12 GB: gemma3:12b  (ollama pull <name>)
 ollama_url = "http://localhost:11434"
-model = "mistral-small3.2"
+model = "llama3.1:8b"
 style = "a laid-back, dry-witted baseball radio announcer who has somehow ended up calling a car race"
 # Roughly how fast the voice speaks; used to size each line to its clip.
 words_per_second = 2.6
