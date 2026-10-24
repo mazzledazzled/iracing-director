@@ -2,6 +2,14 @@
 
 Turns an iRacing replay into a highlights video with AI commentary. Everything runs on your own PC, with no paid services.
 
+## Quick start
+
+1. Click **Code > Download ZIP** and extract it. Windows often puts it in a folder inside a folder, for example `iracing-director-main\iracing-director-main`. Open the inner one: it's the folder with `setup.bat` and `dashboard.bat` in it.
+2. Double-click **`setup.bat`** once. It installs everything.
+3. Open OBS and your replay in iRacing, then double-click **`dashboard.bat`** and work from the page it opens.
+
+If you use a terminal instead, `cd` into the folder that contains `run.bat` before running commands like `run.bat all`.
+
 **How it works**
 
 1. **scan**: plays the replay at 16x through the iRacing SDK and logs every car's position on track (about 2 minutes for a 30-minute race). It also collects iRacing's own incident markers.
